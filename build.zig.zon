@@ -1,0 +1,25 @@
+.{
+    .name = .BigWordSearch,
+
+    .version = "0.0.0",
+
+    .fingerprint = 0x55b1e52dfde38f88, // Changing this has security and trust implications.
+
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig.git#6afc7a5854c202438c372d940851c999dbe4ce75",
+            .hash = "httpz-0.0.0-PNVzrMG3BgC2nAeXR0VFONPZgaOJ9TpAjanNn5zl9D9c",
+        },
+        .websocket = .{
+            .url = "git+https://github.com/karlseguin/websocket.zig.git#10b0e7be2158ff22733f1e59c1ae0bace5bf3a0c",
+            .hash = "websocket-0.1.0-ZPISdbhVAwCL-zrOIFLKLr6CHtwV92raAnObudtbYQjJ",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

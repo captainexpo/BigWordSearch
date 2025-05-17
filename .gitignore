@@ -1,0 +1,4 @@
+zig-out/
+.venv/
+.vscode/
+.zig-cache/
