@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const Generator = struct {
-    SEED: u64 = 1337,
+    SEED: u64 = @as(u64, std.math.pow(u64, 2, 25) - 912),
     grid_width: u64,
     prng: std.Random.Xoshiro256,
 
@@ -29,6 +29,15 @@ pub const Generator = struct {
     }
 
     pub fn getBlock(self: *Generator, allocator: std.mem.Allocator, x1: usize, y1: usize, x2: usize, y2: usize) ![]u8 {
+        if (x1 >= x2 or y1 >= y2) {
+            return error.InvalidInput;
+        }
+        if (x1 > self.grid_width or y1 > self.grid_width or x2 > self.grid_width or y2 > self.grid_width) {
+            return error.InvalidInput;
+        }
+        if (x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0) {
+            return error.InvalidInput;
+        }
         // Returns a string of chars, lines separated by NULL
         const w = x2 - x1;
         const h = y2 - y1;

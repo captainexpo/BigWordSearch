@@ -2,3 +2,4 @@ zig-out/
 .venv/
 .vscode/
 .zig-cache/
+node_modules/

@@ -4,14 +4,14 @@ const Generator = @import("generator.zig").Generator;
 
 var gen: Generator = undefined;
 
-pub fn main() !void {
+pub fn startWebsocket(port: u16) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    gen = try Generator.init(allocator, 10);
+    gen = try Generator.init(allocator, 10000);
 
     var server = try ws.Server(Handler).init(allocator, .{
-        .port = 9224,
+        .port = port,
         .address = "127.0.0.1",
         .handshake = .{
             .timeout = 3,
@@ -29,6 +29,8 @@ pub fn main() !void {
     // this blocks
     try server.listen(&app);
 }
+
+const MessageJSON = struct { message: []const u8, data: []const u8 };
 
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
@@ -63,22 +65,61 @@ const Handler = struct {
         return result;
     }
 
-    // You must defined a public clientMessage method
-    pub fn clientMessage(self: *Handler, data: []const u8) !void {
-        std.debug.print("clientMessage: {any}\n", .{data});
+    const GridData = struct {
+        message: []const u8,
+        data: []const u8,
+        offsetX: u64,
+        offsetY: u64,
+    };
+    pub fn sendGridData(self: *Handler, message: []const u8, data: []const u8) !void {
+        //std.debug.print("clientMessage: {any}\n", .{data});
         const pos = self.parsePositionInput(data) catch |e| {
             std.debug.print("Invalid input: {?}\n", .{e});
             try self.conn.close(.{});
             return;
         };
-        std.debug.print("Parsed positions: {any}\n", .{pos});
-        const block: []u8 = gen.getBlock(std.heap.page_allocator, pos[0], pos[1], pos[2], pos[3]) catch |e| {
+        //std.debug.print("Parsed positions: {any}\n", .{pos});
+        const block = gen.getBlock(std.heap.page_allocator, pos[0], pos[1], pos[2], pos[3]) catch |e| {
             std.debug.print("Error generating block: {?}\n", .{e});
             try self.conn.close(.{});
             return;
         };
+        var returnMessage = std.ArrayList(u8).init(std.heap.page_allocator);
+        defer returnMessage.deinit();
+        try std.json.stringify(
+            GridData{
+                .message = message,
+                .data = block,
+                .offsetX = pos[0],
+                .offsetY = pos[1],
+            },
+            .{},
+            returnMessage.writer(),
+        );
+        try self.conn.write(try returnMessage.toOwnedSlice());
+    }
 
-        try self.conn.write(block);
+    // You must defined a public clientMessage method
+    pub fn clientMessage(self: *Handler, data: []const u8) !void {
+        const startTime = std.time.microTimestamp();
+        const message = std.json.parseFromSlice(MessageJSON, std.heap.page_allocator, data, .{}) catch |e| {
+            std.debug.print("Error parsing {s}: {?}\n", .{ data, e });
+            try self.conn.close(.{});
+            return;
+        };
+        defer message.deinit();
+        //std.debug.print("Parsed message: {any}\n", .{message});
+
+        if (std.mem.eql(u8, message.value.message, "gridData")) {
+            try self.sendGridData(message.value.message, message.value.data);
+        } else if (std.mem.eql(u8, message.value.message, "ping")) {
+            // Handle ping message
+            try self.conn.write("pong");
+        } else {
+            std.debug.print("Unknown message type: {any}\n", .{message.value.message});
+            try self.conn.close(.{});
+        }
+        std.debug.print("Time taken: {d}ms\n", .{std.time.microTimestamp() - startTime});
     }
 };
 

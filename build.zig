@@ -21,29 +21,11 @@ pub fn build(b: *std.Build) void {
 
     // We will also create a module for our other entry point, 'main.zig'.
     const exe_mod = b.createModule(.{
-        // `root_source_file` is the Zig "entry point" of the module. If a module
-        // only contains e.g. external object files, you can make this `null`.
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("backend/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Modules can depend on one another using the `std.Build.Module.addImport` function.
-    // This is what allows Zig source code to use `@import("foo")` where 'foo' is not a
-    // file path. In this case, we set up `exe_mod` to import `lib_mod`.
-
-    // Now, we will create a static library based on the module we created above.
-    // This creates a `std.Build.Step.Compile`, which is the build step responsible
-    // for actually invoking the compiler.
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-
-    // This creates another `std.Build.Step.Compile`, but this one builds an executable
-    // rather than a static library.
     const exe = b.addExecutable(.{
         .name = "BigWordSearch",
         .root_module = exe_mod,
@@ -54,12 +36,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // the executable from your call to b.addExecutable(...)
     exe.root_module.addImport("websocket", websocket.module("websocket"));
 
-    // This declares intent for the executable to be installed into the
-    // standard location when the user invokes the "install" step (the default
-    // step when running `zig build`).
     b.installArtifact(exe);
 
     // This *creates* a Run step in the build graph, to be executed when another
