@@ -4,11 +4,9 @@ const Generator = @import("generator.zig").Generator;
 
 var gen: Generator = undefined;
 
-pub fn startWebsocket(port: u16) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-
-    gen = try Generator.init(allocator, 10000);
+pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []const u8) !void {
+    gen = try Generator.init(allocator, 500);
+    try gen.readWordsFromFile(wordsPath, allocator);
 
     var server = try ws.Server(Handler).init(allocator, .{
         .port = port,
@@ -16,22 +14,21 @@ pub fn startWebsocket(port: u16) !void {
         .handshake = .{
             .timeout = 3,
             .max_size = 1024,
-            // since we aren't using hanshake.headers
-            // we can set this to 0 to save a few bytes.
             .max_headers = 0,
         },
     });
 
     // Arbitrary (application-specific) data to pass into each handler
     // Pass void ({}) into listen if you have none
-    var app = App{};
+    var app = App{
+        .allocator = allocator,
+    };
 
     // this blocks
     try server.listen(&app);
 }
 
 const MessageJSON = struct { message: []const u8, data: []const u8 };
-
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
     app: *App,
@@ -71,20 +68,18 @@ const Handler = struct {
         offsetX: u64,
         offsetY: u64,
     };
-    pub fn sendGridData(self: *Handler, message: []const u8, data: []const u8) !void {
+    pub fn sendGridData(self: *Handler, message: []const u8, data: []const u8) ![]u8 {
         //std.debug.print("clientMessage: {any}\n", .{data});
         const pos = self.parsePositionInput(data) catch |e| {
-            std.debug.print("Invalid input: {?}\n", .{e});
-            try self.conn.close(.{});
-            return;
+            std.log.warn("Invalid input: {?}\n", .{e});
+            return e;
         };
         //std.debug.print("Parsed positions: {any}\n", .{pos});
-        const block = gen.getBlock(std.heap.page_allocator, pos[0], pos[1], pos[2], pos[3]) catch |e| {
-            std.debug.print("Error generating block: {?}\n", .{e});
-            try self.conn.close(.{});
-            return;
+        const block = gen.getBlock(self.app.allocator, pos[0], pos[1], pos[2], pos[3]) catch |e| {
+            std.log.err("Error generating block: {?}\n", .{e});
+            return e;
         };
-        var returnMessage = std.ArrayList(u8).init(std.heap.page_allocator);
+        var returnMessage = std.ArrayList(u8).init(self.app.allocator);
         defer returnMessage.deinit();
         try std.json.stringify(
             GridData{
@@ -96,36 +91,55 @@ const Handler = struct {
             .{},
             returnMessage.writer(),
         );
-        try self.conn.write(try returnMessage.toOwnedSlice());
+        return try returnMessage.toOwnedSlice();
+    }
+
+    pub fn handleMessage(self: *Handler, data: []const u8) ![]u8 {
+        const startTime = std.time.microTimestamp();
+        const message = std.json.parseFromSlice(MessageJSON, self.app.allocator, data, .{}) catch |e| {
+            std.log.err("Error parsing {s}: {?}\n", .{ data, e });
+            return e;
+        };
+        defer message.deinit();
+
+        var result: []u8 = "";
+        if (std.mem.eql(u8, message.value.message, "gridData")) {
+            result = try self.sendGridData(message.value.message, message.value.data);
+        } else {
+            return error.InvalidMessage;
+        }
+        std.debug.print("Time taken: {d}ms\n", .{std.time.microTimestamp() - startTime});
+        return result;
     }
 
     // You must defined a public clientMessage method
     pub fn clientMessage(self: *Handler, data: []const u8) !void {
-        const startTime = std.time.microTimestamp();
-        const message = std.json.parseFromSlice(MessageJSON, std.heap.page_allocator, data, .{}) catch |e| {
-            std.debug.print("Error parsing {s}: {?}\n", .{ data, e });
-            try self.conn.close(.{});
-            return;
+        var result = std.ArrayList(u8).init(self.app.allocator);
+        const r = self.handleMessage(data) catch |e| {
+            std.log.err("Error handling message: {?}\n", .{e});
+            try std.json.stringify(MessageJSON{
+                .data = "",
+                .message = "error",
+            }, .{}, result.writer());
+            defer result.deinit();
+            try self.conn.write(try result.toOwnedSlice());
+            try self.conn.close(.{ .code = 1000, .reason = "error" });
+            return e;
         };
-        defer message.deinit();
-        //std.debug.print("Parsed message: {any}\n", .{message});
 
-        if (std.mem.eql(u8, message.value.message, "gridData")) {
-            try self.sendGridData(message.value.message, message.value.data);
-        } else if (std.mem.eql(u8, message.value.message, "ping")) {
-            // Handle ping message
-            try self.conn.write("pong");
-        } else {
-            std.debug.print("Unknown message type: {any}\n", .{message.value.message});
-            try self.conn.close(.{});
-        }
-        std.debug.print("Time taken: {d}ms\n", .{std.time.microTimestamp() - startTime});
+        try std.json.stringify(MessageJSON{
+            .data = r,
+            .message = "success",
+        }, .{}, result.writer());
+        defer result.deinit();
+        const resultStr = try result.toOwnedSlice();
+        //std.debug.print("Sending message: {s}\n", .{resultStr});
+        try self.conn.write(resultStr);
     }
 };
 
 // This is application-specific you want passed into your Handler's
 // init function.
 const App = struct {
-    // maybe a db pool
-    // maybe a list of rooms
+    allocator: std.mem.Allocator,
 };

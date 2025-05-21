@@ -1,4 +1,4 @@
-const socket = new WebSocket("ws://localhost:8080");
+const socket = new WebSocket("ws://localhost:8081");
 
 socket.onopen = () => {
     updateGrid();
@@ -6,9 +6,22 @@ socket.onopen = () => {
 
 socket.onmessage = (event) => {
     //console.log("Message from server: ", event.data);
-    const data = JSON.parse(event.data);
+    let data = JSON.parse(event.data);
+    const resultType = data.message;
+    if (resultType == "error") {
+        console.error("Error from server: ", data.data);
+        window.alert("An error has occured, please reload the page.");
+        return;
+    }
+
+    data = JSON.parse(data.data);
     switch(data.message) {
         case "gridData":
+            if (typeof data.data[0] == "number") {
+                // If the data is a number, convert it to a string
+                data.data = data.data.map((num) => num.toString());
+
+            }
             const gridData = data.data.split("\n");
             //console.log("Grid data: ", gridData, data.offsetX, data.offsetY);
             recievedGridData(gridData, data.offsetX, data.offsetY);

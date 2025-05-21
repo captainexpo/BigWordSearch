@@ -1,5 +1,5 @@
 
-const minScale = 0.1;
+const minScale = 0.01;
 const maxScale = 4;
 let currentScale = 1;
 // Handle zoom

@@ -10,8 +10,10 @@ stage.on("dragmove", () => {
     updateGrid();
 });
 
-let layer = new Konva.Layer();
-stage.add(layer);
+let textLayer = new Konva.FastLayer({ listening: true});
+let cursorLayer = new Konva.Layer({ listening: false });
+
+stage.add(textLayer);
 
 const cellSize = 100;
 
@@ -61,37 +63,67 @@ function _updateGrid() {
     const bounds = toGridBounds();
     bounds.x = Math.max(0, bounds.x);
     bounds.y = Math.max(0, bounds.y);
+    bounds.x1 = Math.min(bounds.x1, 500);
+    bounds.y1 = Math.min(bounds.y1, 500);
 
     //if(currentScale < 0.5) { 
     //    console.log("Scale too small, not sending grid data");
     //    return;
     //}
+    if (currentScale < 0.07) {
+        recievedGridData(null, bounds.x, bounds.y, bounds.x1, bounds.y1);
+        return;
+    }
     sendMessage("gridData", bounds);
 }
 var updateGrid = debounce(_updateGrid, 100);
 
 
 // WebSocket-driven
-function recievedGridData(data, offsetX, offsetY) {
+function recievedGridData(data, offsetX, offsetY, bx, by) {
+    if (data == null) {
+        // Draw a flat rectangle
+        textLayer.destroyChildren();
+        const rect = new Konva.Rect({
+            x: 0,
+            y: 0,
+            width: bx * cellSize,
+            height: by * cellSize,
+            fill: "rgba(255, 255, 255, 0.1)",
+            stroke: "black",
+            strokeWidth: 0,
+        });
+        textLayer.add(rect);
+        textLayer.draw();
+        return;
+    }
     let startTime = performance.now();
-    layer.destroyChildren();
-    for (let y = 0; y < data.length; y++) {
+    textLayer.destroyChildren();
+
+    for (let _y = 0; _y < data.length; _y++) {
+        const y = Math.floor(_y);
         const row = data[y];
-        for (let x = 0; x < row.length; x++) {
+        for (let _x = 0; _x < row.length; _x++) {
+            const x = Math.floor(_x);
             const gridX = offsetX + x;
             const gridY = offsetY + y;
             const drawX = gridX * cellSize;
             const drawY = gridY * cellSize;
 
-            const rect = new Konva.Rect({
-                x: drawX,
-                y: drawY,
-                width: cellSize,
-                height: cellSize,
-                fill: "black",
-                stroke: "#ffffff00",
-                strokeWidth: 1,
-            });
+            if (currentScale <= 0.1) {
+                // Draw a rectangle instead of text
+                const rect = new Konva.Rect({
+                    x: drawX + cellSize / 3,
+                    y: drawY + cellSize / 3,
+                    width: cellSize / 3,
+                    height: cellSize / 3,
+                    fill: "rgb(140, 140, 140)",
+                    stroke: "black",
+                    strokeWidth: 1,
+                });
+                textLayer.add(rect);
+                continue;
+            }
 
             const text = new Konva.Text({
                 x: drawX,
@@ -106,12 +138,11 @@ function recievedGridData(data, offsetX, offsetY) {
                 verticalAlign: "middle",
             });
 
-            layer.add(rect);
-            layer.add(text);
+            textLayer.add(text);
         }
     }
 
-    layer.draw();
+    textLayer.draw();
     let endTime = performance.now();
     console.log("Rendering time: ", endTime - startTime, "ms");
 }

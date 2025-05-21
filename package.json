@@ -13,6 +13,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "@types/express": "^5.0.2",
+    "@types/http-proxy-middleware": "^1.0.0",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5"
   }
 }
