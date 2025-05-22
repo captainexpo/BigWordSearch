@@ -2,9 +2,13 @@
 const minScale = 0.01;
 const maxScale = 4;
 let currentScale = 1;
+let allowZoom = true;
 // Handle zoom
 stage.on("wheel", (e) => {
     e.evt.preventDefault();
+    if (!allowZoom) {
+        return;
+    }
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
 

@@ -34,7 +34,7 @@ pub const Generator = struct {
 
     pub fn getChar(self: *Generator, x: u64, y: u64) u8 {
         if (self.charMap.get(.{ .x = x, .y = y })) |char| {
-            std.log.debug("Found char: {c} at {d} {d}\n", .{ char, x, y });
+            //std.log.debug("Found char: {c} at {d} {d}", .{ char, x, y });
             return char;
         }
         const seed = self.combine(x, y, self.SEED);
@@ -72,7 +72,7 @@ pub const Generator = struct {
 
         var s = std.mem.tokenizeAny(u8, buffer, "\n");
         while (s.next()) |line| {
-            std.log.debug("Line: {s}\n", .{line});
+            std.log.debug("Line: {s}", .{line});
             var split = std.mem.tokenizeAny(u8, line, ",");
             const word = Word{
                 .x = try std.fmt.parseUnsigned(u64, split.next() orelse "0", 10),
@@ -106,7 +106,7 @@ pub const Generator = struct {
                         break;
                     },
                     else => {
-                        std.log.err("Error: {?}\n", .{err});
+                        std.log.err("Error: {?}", .{err});
                         return err;
                     },
                 };
@@ -115,7 +115,7 @@ pub const Generator = struct {
                         break;
                     },
                     else => {
-                        std.log.err("Error: {?}\n", .{err});
+                        std.log.err("Error: {?}", .{err});
                         return err;
                     },
                 };
@@ -125,13 +125,16 @@ pub const Generator = struct {
 
     pub fn getBlock(self: *Generator, allocator: std.mem.Allocator, x1: usize, y1: usize, x2: usize, y2: usize) ![]u8 {
         if (x1 >= x2 or y1 >= y2) {
-            return error.InvalidInput;
+            std.log.err("Invalid input: {d} {d} {d} {d}", .{ x1, y1, x2, y2 });
+            return error.InvalidGridCoordinates;
         }
         if (x1 > self.grid_width or y1 > self.grid_width or x2 > self.grid_width or y2 > self.grid_width) {
-            return error.InvalidInput;
+            std.log.err("Invalid input: {d} {d} {d} {d}", .{ x1, y1, x2, y2 });
+            return error.InvalidGridCoordinates;
         }
         if (x1 < 0 or y1 < 0 or x2 < 0 or y2 < 0) {
-            return error.InvalidInput;
+            std.log.err("Invalid input: {d} {d} {d} {d}", .{ x1, y1, x2, y2 });
+            return error.InvalidGridCoordinates;
         }
         // Returns a string of chars, lines separated by NULL
         const w = x2 - x1;
@@ -150,6 +153,35 @@ pub const Generator = struct {
                 idx += 1;
             }
         }
+        return buff;
+    }
+
+    pub fn getLine(self: *Generator, allocator: std.mem.Allocator, x1: u64, y1: u64, x2: u64, y2: u64) ![]u8 {
+        // Calculate deltas
+        const dx: i64 = @as(i64, @intCast(x2)) - @as(i64, @intCast(x1));
+        const dy: i64 = @as(i64, @intCast(y2)) - @as(i64, @intCast(y1));
+
+        // Determine the number of steps (max of abs(dx), abs(dy)) + 1
+        const steps: usize = @intCast(@max(@abs(dx), @abs(dy)) + 1);
+
+        // Calculate step direction
+        const step_x: i64 = if (dx == 0) 0 else if (dx > 0) 1 else -1;
+        const step_y: i64 = if (dy == 0) 0 else if (dy > 0) 1 else -1;
+
+        var buff = try allocator.alloc(u8, steps);
+
+        var x: i64 = @as(i64, @intCast(x1));
+        var y: i64 = @as(i64, @intCast(y1));
+
+        for (0..steps) |i| {
+            if (x < 0 or y < 0 or x >= @as(i64, @intCast(self.grid_width)) or y >= @as(i64, @intCast(self.grid_width))) {
+                return error.InvalidGridCoordinates;
+            }
+            buff[i] = self.getChar(@as(u64, @intCast(x)), @as(u64, @intCast(y)));
+            x += step_x;
+            y += step_y;
+        }
+        std.log.debug("Line: {s}", .{buff});
         return buff;
     }
 };

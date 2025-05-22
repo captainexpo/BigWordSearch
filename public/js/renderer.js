@@ -10,8 +10,8 @@ stage.on("dragmove", () => {
     updateGrid();
 });
 
-let textLayer = new Konva.FastLayer({ listening: true});
-let cursorLayer = new Konva.Layer({ listening: false });
+let textLayer = new Konva.Layer({ listening: true});
+let cursorLayer = new Konva.FastLayer();
 
 stage.add(textLayer);
 
@@ -63,8 +63,8 @@ function _updateGrid() {
     const bounds = toGridBounds();
     bounds.x = Math.max(0, bounds.x);
     bounds.y = Math.max(0, bounds.y);
-    bounds.x1 = Math.min(bounds.x1, 500);
-    bounds.y1 = Math.min(bounds.y1, 500);
+    bounds.x1 = Math.min(bounds.x1, 25);
+    bounds.y1 = Math.min(bounds.y1, 25);
 
     //if(currentScale < 0.5) { 
     //    console.log("Scale too small, not sending grid data");
@@ -78,6 +78,7 @@ function _updateGrid() {
 }
 var updateGrid = debounce(_updateGrid, 100);
 
+let textGrid = []
 
 // WebSocket-driven
 function recievedGridData(data, offsetX, offsetY, bx, by) {
@@ -100,9 +101,12 @@ function recievedGridData(data, offsetX, offsetY, bx, by) {
     let startTime = performance.now();
     textLayer.destroyChildren();
 
+    textGrid = [];
+
     for (let _y = 0; _y < data.length; _y++) {
         const y = Math.floor(_y);
         const row = data[y];
+        let tmp = [];
         for (let _x = 0; _x < row.length; _x++) {
             const x = Math.floor(_x);
             const gridX = offsetX + x;
@@ -110,20 +114,15 @@ function recievedGridData(data, offsetX, offsetY, bx, by) {
             const drawX = gridX * cellSize;
             const drawY = gridY * cellSize;
 
-            if (currentScale <= 0.1) {
-                // Draw a rectangle instead of text
-                const rect = new Konva.Rect({
-                    x: drawX + cellSize / 3,
-                    y: drawY + cellSize / 3,
-                    width: cellSize / 3,
-                    height: cellSize / 3,
-                    fill: "rgb(140, 140, 140)",
-                    stroke: "black",
-                    strokeWidth: 1,
-                });
-                textLayer.add(rect);
-                continue;
-            }
+            // Draw a transparent rectangle behind the text to increase clickable area
+            const hitRect = new Konva.Rect({
+                x: drawX,
+                y: drawY,
+                width: cellSize,
+                height: cellSize,
+                fill: "rgba(0,0,0,0)", // invisible but catches events
+                listening: true,
+            });
 
             const text = new Konva.Text({
                 x: drawX,
@@ -136,13 +135,92 @@ function recievedGridData(data, offsetX, offsetY, bx, by) {
                 fontFamily: "monospace",
                 align: "center",
                 verticalAlign: "middle",
+                listening: false, // let the rect handle events
             });
 
+            tmp.push(text);
+            
+
+            hitRect.on("click", () => clickedText(text));
+            hitRect.on("mouseover", () => onhover(text));
+
+            textLayer.add(hitRect);
+            textLayer.add(text);
+
+            text.on("click", () => clickedText(text));
+
+            text.on("mouseover", () => onhover(text));
             textLayer.add(text);
         }
+        textGrid.push(tmp);
     }
 
     textLayer.draw();
     let endTime = performance.now();
     console.log("Rendering time: ", endTime - startTime, "ms");
 }
+
+let selectedText = {gx: -1, py: -1, text: null};
+let hoveredText = null;
+function clickedText(node){
+    if (selectedText.text === null) {
+        selectedText.text = node;
+        selectedText.gx = Math.floor(node.x() / cellSize);
+        selectedText.gy = Math.floor(node.y() / cellSize);
+        stage.draggable(false);
+        allowZoom = false;
+        node.setAttrs({
+            fill: "red",
+            fontSize: 80,
+        });
+    }
+    else {
+        selectedText.text.setAttrs({
+            fill: "white",
+            fontSize: 50,
+        });
+        
+        selectedText.text = null;
+        // allow panning and zooming
+        stage.draggable(true);
+        allowZoom = true;
+        if (selectedText.gx == Math.floor(node.x() / cellSize) && selectedText.gy == Math.floor(node.y() / cellSize)) {
+            return;
+        }
+        sendMessage("wordGuess", {
+            x1: selectedText.gx,
+            y1: selectedText.gy,
+            x2: Math.floor(node.x() / cellSize),
+            y2: Math.floor(node.y() / cellSize),
+        });
+
+    }
+}
+
+let selectedLine = [];
+
+function onhover(node){
+    if (selectedText.text === node) return;
+    if (selectedText.text !== null) {
+        if (hoveredText !== null) {
+            hoveredText.setAttrs({
+                fill: "white",
+                fontSize: 50,
+            });
+        }
+        hoveredText = node;
+        hoveredText.setAttrs({
+            fill: "yellow",
+            fontSize: 80,
+        });
+    }
+    else {
+        if (hoveredText !== null) {
+            hoveredText.setAttrs({
+                fill: "white",
+                fontSize: 50,
+            });
+        }
+        hoveredText = null;
+    }
+}  

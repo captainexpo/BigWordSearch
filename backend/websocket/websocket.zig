@@ -1,12 +1,20 @@
 const std = @import("std");
 const ws = @import("websocket");
 const Generator = @import("generator.zig").Generator;
+const WordChecker = @import("wordcheck.zig").WordChecker;
 
 var gen: Generator = undefined;
-
+var wordChecker: *WordChecker = undefined;
 pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []const u8) !void {
-    gen = try Generator.init(allocator, 500);
+    gen = try Generator.init(allocator, 25);
     try gen.readWordsFromFile(wordsPath, allocator);
+
+    wordChecker = allocator.create(WordChecker) catch |e| {
+        std.log.err("Error creating WordChecker: {?}", .{e});
+        return e;
+    };
+    wordChecker.* = WordChecker.init(allocator, &gen);
+    try wordChecker.readFromDictionary("/home/ethroop/Documents/Github/BigWordSearch/data/wiki-100k.txt");
 
     var server = try ws.Server(Handler).init(allocator, .{
         .port = port,
@@ -29,6 +37,13 @@ pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []cons
 }
 
 const MessageJSON = struct { message: []const u8, data: []const u8 };
+const WordGuessJSON = struct {
+    x1: u64,
+    y1: u64,
+    x2: u64,
+    y2: u64,
+};
+
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
     app: *App,
@@ -71,12 +86,12 @@ const Handler = struct {
     pub fn sendGridData(self: *Handler, message: []const u8, data: []const u8) ![]u8 {
         //std.debug.print("clientMessage: {any}\n", .{data});
         const pos = self.parsePositionInput(data) catch |e| {
-            std.log.warn("Invalid input: {?}\n", .{e});
+            std.log.warn("Invalid input: {?}", .{e});
             return e;
         };
         //std.debug.print("Parsed positions: {any}\n", .{pos});
         const block = gen.getBlock(self.app.allocator, pos[0], pos[1], pos[2], pos[3]) catch |e| {
-            std.log.err("Error generating block: {?}\n", .{e});
+            std.log.err("Error generating block: {?}", .{e});
             return e;
         };
         var returnMessage = std.ArrayList(u8).init(self.app.allocator);
@@ -97,18 +112,29 @@ const Handler = struct {
     pub fn handleMessage(self: *Handler, data: []const u8) ![]u8 {
         const startTime = std.time.microTimestamp();
         const message = std.json.parseFromSlice(MessageJSON, self.app.allocator, data, .{}) catch |e| {
-            std.log.err("Error parsing {s}: {?}\n", .{ data, e });
+            std.log.err("Error parsing {s}: {?}", .{ data, e });
             return e;
         };
         defer message.deinit();
 
+        std.debug.print("clientMessage: {s}\n", .{message.value.message});
+
         var result: []u8 = "";
         if (std.mem.eql(u8, message.value.message, "gridData")) {
             result = try self.sendGridData(message.value.message, message.value.data);
+        } else if (std.mem.eql(u8, message.value.message, "wordGuess")) {
+            std.debug.print("GOT WORD GUESS\n", .{});
+            const wordGuess = std.json.parseFromSlice(WordGuessJSON, self.app.allocator, message.value.data, .{}) catch |e| {
+                std.log.err("Error parsing {s}: {?}", .{ message.value.data, e });
+                return e;
+            };
+            defer wordGuess.deinit();
+            const isWord = try wordChecker.checkWord(wordGuess.value.x1, wordGuess.value.y1, wordGuess.value.x2, wordGuess.value.y2);
+            result = if (isWord) @as([]u8, @ptrCast(@constCast("{\"result\": true, \"message\": \"wordGuess\"}"))) else @as([]u8, @ptrCast(@constCast("{\"result\": false, \"message\": \"wordGuess\"}")));
         } else {
             return error.InvalidMessage;
         }
-        std.debug.print("Time taken: {d}ms\n", .{std.time.microTimestamp() - startTime});
+        std.log.debug("Time taken: {d}ms", .{std.time.microTimestamp() - startTime});
         return result;
     }
 
@@ -116,7 +142,7 @@ const Handler = struct {
     pub fn clientMessage(self: *Handler, data: []const u8) !void {
         var result = std.ArrayList(u8).init(self.app.allocator);
         const r = self.handleMessage(data) catch |e| {
-            std.log.err("Error handling message: {?}\n", .{e});
+            std.log.err("Error handling message: {?}", .{e});
             try std.json.stringify(MessageJSON{
                 .data = "",
                 .message = "error",

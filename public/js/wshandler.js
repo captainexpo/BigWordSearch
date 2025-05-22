@@ -13,6 +13,7 @@ socket.onmessage = (event) => {
         window.alert("An error has occured, please reload the page.");
         return;
     }
+    console.log("Data: ", data);
 
     data = JSON.parse(data.data);
     switch(data.message) {
@@ -25,6 +26,14 @@ socket.onmessage = (event) => {
             const gridData = data.data.split("\n");
             //console.log("Grid data: ", gridData, data.offsetX, data.offsetY);
             recievedGridData(gridData, data.offsetX, data.offsetY);
+            break;
+        case "wordGuess":
+            //console.log("Word guess: ", data.data);
+            const wasGood = data.result;
+            console.log("Word guess: ", wasGood);
+            if (wasGood) {
+                console.log("Word guess was good");
+            }
             break;
         default:
             console.error("Unknown message type: ", data.message);
@@ -46,6 +55,9 @@ function sendMessage(message, data) {
     switch(message) {
         case "gridData":
             data = [...toull(data.x), ...toull(data.y), ...toull(data.x1), ...toull(data.y1)];
+            break;
+        case "wordGuess":
+            data = JSON.stringify(data)
             break;
         default:
             return false;
