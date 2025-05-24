@@ -184,4 +184,26 @@ pub const Generator = struct {
         std.log.debug("Line: {s}", .{buff});
         return buff;
     }
+
+    pub fn wordFound(self: *Generator, x1: u64, y1: u64, x2: u64, y2: u64) !void {
+        // Update the positions in the charMap
+        const dx: i64 = @as(i64, @intCast(x2)) - @as(i64, @intCast(x1));
+        const dy: i64 = @as(i64, @intCast(y2)) - @as(i64, @intCast(y1));
+        const steps: usize = @intCast(@max(@abs(dx), @abs(dy)) + 1);
+        const step_x: i64 = if (dx == 0) 0 else if (dx > 0) 1 else -1;
+        const step_y: i64 = if (dy == 0) 0 else if (dy > 0) 1 else -1;
+        var x: i64 = @as(i64, @intCast(x1));
+        var y: i64 = @as(i64, @intCast(y1));
+        for (0..steps) |_| {
+            if (x < 0 or y < 0 or x >= @as(i64, @intCast(self.grid_width)) or y >= @as(i64, @intCast(self.grid_width))) {
+                return error.InvalidGridCoordinates;
+            }
+            try self.charMap.put(
+                .{ .x = try utils.toU64(x), .y = try utils.toU64(y) },
+                0,
+            );
+            x += step_x;
+            y += step_y;
+        }
+    }
 };

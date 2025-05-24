@@ -13,7 +13,13 @@ socket.onmessage = (event) => {
         window.alert("An error has occured, please reload the page.");
         return;
     }
+
     console.log("Data: ", data);
+
+    if (data.data == ""){
+        return;
+    }
+
 
     data = JSON.parse(data.data);
     switch(data.message) {
@@ -57,7 +63,13 @@ function sendMessage(message, data) {
             data = [...toull(data.x), ...toull(data.y), ...toull(data.x1), ...toull(data.y1)];
             break;
         case "wordGuess":
-            data = JSON.stringify(data)
+            data = data
+            break;
+        case "cursor":
+            data = data;
+            break;
+        case "getCursorData":
+            data = {}
             break;
         default:
             return false;

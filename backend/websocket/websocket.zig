@@ -2,9 +2,15 @@ const std = @import("std");
 const ws = @import("websocket");
 const Generator = @import("generator.zig").Generator;
 const WordChecker = @import("wordcheck.zig").WordChecker;
+const CursorHandler = @import("cursorhandler.zig").CursorHandler;
+const utils = @import("utils.zig");
 
 var gen: Generator = undefined;
 var wordChecker: *WordChecker = undefined;
+var cursorHandler: *CursorHandler = undefined;
+
+var currentId: u64 = 0;
+
 pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []const u8) !void {
     gen = try Generator.init(allocator, 25);
     try gen.readWordsFromFile(wordsPath, allocator);
@@ -15,6 +21,12 @@ pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []cons
     };
     wordChecker.* = WordChecker.init(allocator, &gen);
     try wordChecker.readFromDictionary("/home/ethroop/Documents/Github/BigWordSearch/data/wiki-100k.txt");
+
+    cursorHandler = allocator.create(CursorHandler) catch |e| {
+        std.log.err("Error creating CursorHandler: {?}", .{e});
+        return e;
+    };
+    cursorHandler.* = CursorHandler.init(allocator);
 
     var server = try ws.Server(Handler).init(allocator, .{
         .port = port,
@@ -37,12 +49,6 @@ pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []cons
 }
 
 const MessageJSON = struct { message: []const u8, data: []const u8 };
-const WordGuessJSON = struct {
-    x1: u64,
-    y1: u64,
-    x2: u64,
-    y2: u64,
-};
 
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
@@ -109,30 +115,89 @@ const Handler = struct {
         return try returnMessage.toOwnedSlice();
     }
 
+    pub fn tryGetValue(object: std.json.ObjectMap, key: []const u8) !std.json.Value {
+        const value = object.get(key) orelse {
+            std.log.err("Error getting value for key {s}", .{key});
+            return error.InvalidInput;
+        };
+        return value;
+    }
+
+    pub fn jsonValueSliceToGeneric(self: *Handler, T: type, values: []std.json.Value) ![]T {
+        var result = std.ArrayList(T).init(self.app.allocator);
+        defer result.deinit();
+        for (values) |v| {
+            switch (T) {
+                u8 => try result.append(@truncate(try utils.toU64(v.integer))),
+                u64 => try result.append(try utils.toU64(v.integer)),
+                i64 => try result.append(v.integer),
+                []const u8 => {
+                    const str = v.string;
+                    const slice = str.toOwnedSlice(self.app.allocator) catch |e| {
+                        std.log.err("Error converting string to slice: {?}", .{e});
+                        return e;
+                    };
+                    try result.append(slice);
+                },
+                else => {
+                    std.log.err("Invalid type: {s}", .{T});
+                    return error.InvalidType;
+                },
+            }
+        }
+        return try result.toOwnedSlice();
+    }
+
     pub fn handleMessage(self: *Handler, data: []const u8) ![]u8 {
         const startTime = std.time.microTimestamp();
-        const message = std.json.parseFromSlice(MessageJSON, self.app.allocator, data, .{}) catch |e| {
+        const message = std.json.parseFromSlice(std.json.Value, self.app.allocator, data, .{}) catch |e| {
             std.log.err("Error parsing {s}: {?}", .{ data, e });
             return e;
         };
         defer message.deinit();
 
-        std.debug.print("clientMessage: {s}\n", .{message.value.message});
+        const messageActual = (tryGetValue(message.value.object, "message") catch |e| return e).string;
+        var dataActual = (tryGetValue(message.value.object, "data") catch |e| return e);
+
+        std.debug.print("clientMessage: {s}\n", .{message.value.object.get("message").?.string});
 
         var result: []u8 = "";
-        if (std.mem.eql(u8, message.value.message, "gridData")) {
-            result = try self.sendGridData(message.value.message, message.value.data);
-        } else if (std.mem.eql(u8, message.value.message, "wordGuess")) {
+        if (std.mem.eql(u8, messageActual, "gridData")) {
+            result = try self.sendGridData(messageActual, try jsonValueSliceToGeneric(self, u8, dataActual.array.items));
+        } else if (std.mem.eql(u8, messageActual, "wordGuess")) {
             std.debug.print("GOT WORD GUESS\n", .{});
-            const wordGuess = std.json.parseFromSlice(WordGuessJSON, self.app.allocator, message.value.data, .{}) catch |e| {
-                std.log.err("Error parsing {s}: {?}", .{ message.value.data, e });
-                return e;
-            };
-            defer wordGuess.deinit();
-            const isWord = try wordChecker.checkWord(wordGuess.value.x1, wordGuess.value.y1, wordGuess.value.x2, wordGuess.value.y2);
+            const x1 = try utils.toU64((dataActual.object.get("x1") orelse {
+                return error.InvalidInput;
+            }).integer);
+            const y1 = try utils.toU64((dataActual.object.get("y1") orelse {
+                return error.InvalidInput;
+            }).integer);
+            const x2 = try utils.toU64((dataActual.object.get("x2") orelse {
+                return error.InvalidInput;
+            }).integer);
+            const y2 = try utils.toU64((dataActual.object.get("y2") orelse {
+                return error.InvalidInput;
+            }).integer);
+
+            const isWord = try wordChecker.checkWord(x1, y1, x2, y2, true);
             result = if (isWord) @as([]u8, @ptrCast(@constCast("{\"result\": true, \"message\": \"wordGuess\"}"))) else @as([]u8, @ptrCast(@constCast("{\"result\": false, \"message\": \"wordGuess\"}")));
+        } else if (std.mem.eql(u8, messageActual, "cursor")) {
+            dataActual.dump();
+            const x: f64 = switch (dataActual.object.get("x").?) {
+                .integer => @floatFromInt(dataActual.object.get("x").?.integer),
+                .float => dataActual.object.get("x").?.float,
+                else => return error.InvalidInput,
+            };
+            const y: f64 = switch (dataActual.object.get("y").?) {
+                .integer => @floatFromInt(dataActual.object.get("y").?.integer),
+                .float => dataActual.object.get("y").?.float,
+                else => return error.InvalidInput,
+            };
+            try cursorHandler.addCursor(x, y, self.app.id);
+            std.debug.print("Added cursor: {d} {d}\n", .{ x, y });
         } else {
-            return error.InvalidMessage;
+            std.log.err("Unknown message type: {s}", .{message.value.object.get("message").?.string});
+            return error.UnknownMessageType;
         }
         std.log.debug("Time taken: {d}ms", .{std.time.microTimestamp() - startTime});
         return result;
@@ -162,10 +227,23 @@ const Handler = struct {
         //std.debug.print("Sending message: {s}\n", .{resultStr});
         try self.conn.write(resultStr);
     }
+
+    pub fn close(self: *Handler) !void {
+        cursorHandler.removeCursor(self.app.id) catch |e| {
+            std.log.err("Error removing cursor: {?}", .{e});
+            return e;
+        };
+    }
+
+    pub fn afterInit(self: *Handler) !void {
+        self.app.id = currentId;
+        currentId += 1;
+    }
 };
 
 // This is application-specific you want passed into your Handler's
 // init function.
 const App = struct {
     allocator: std.mem.Allocator,
+    id: u64 = 0,
 };
