@@ -22,12 +22,14 @@ pub const CursorHandler = struct {
         _ = self.cursors.remove(id);
     }
 
-    pub fn getCursors(self: *CursorHandler) !std.ArrayList(Cursor) {
+    pub fn getCursors(self: *CursorHandler) ![]Cursor {
         var cursorList = std.ArrayList(Cursor).init(self.allocator);
         defer cursorList.deinit();
 
-        for (self.cursors.iterator()) |*entry| {
-            try cursorList.append(entry.value);
+        var it = self.cursors.valueIterator();
+
+        while (it.next()) |entry| {
+            try cursorList.append(entry.*);
         }
 
         return cursorList.toOwnedSlice();

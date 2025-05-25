@@ -12,4 +12,4 @@ const server = createServer(app); // use http server
 console.log("Serving from",PUBLIC_DIR);
 
 app.use(express.static(PUBLIC_DIR));
-server.listen(3000, () => console.log('HTTP server on http://localhost:3000'));
+server.listen(3000, () => console.log('HTTP server on http://0.0.0.0:3000'));

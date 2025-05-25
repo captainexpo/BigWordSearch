@@ -16,18 +16,15 @@ socket.onmessage = (event) => {
 
     console.log("Data: ", data);
 
-    if (data.data == ""){
+    if (!data.data){
         return;
     }
 
-
-    data = JSON.parse(data.data);
     switch(data.message) {
         case "gridData":
             if (typeof data.data[0] == "number") {
                 // If the data is a number, convert it to a string
                 data.data = data.data.map((num) => num.toString());
-
             }
             const gridData = data.data.split("\n");
             //console.log("Grid data: ", gridData, data.offsetX, data.offsetY);
@@ -41,7 +38,12 @@ socket.onmessage = (event) => {
                 console.log("Word guess was good");
             }
             break;
-        default:
+        case "cursorData":
+            console.log("Cursor data: ", data.data);
+            const cursorData = data.data;
+            recievedCursorData(cursorData);
+            break;
+        default:    
             console.error("Unknown message type: ", data.message);
     }
 };
@@ -67,9 +69,6 @@ function sendMessage(message, data) {
             break;
         case "cursor":
             data = data;
-            break;
-        case "getCursorData":
-            data = {}
             break;
         default:
             return false;

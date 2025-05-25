@@ -48,12 +48,20 @@ pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []cons
     try server.listen(&app);
 }
 
-const MessageJSON = struct { message: []const u8, data: []const u8 };
+const StringMessage = struct {
+    message: []const u8,
+    data: []const u8,
+};
 
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
     app: *App,
     conn: *ws.Conn,
+
+    id: u64 = 0,
+    cursorSendThread: std.Thread = undefined,
+    cursorThreadRunning: bool = true,
+
     // You must define a public init function which takes
     pub fn init(h: *ws.Handshake, conn: *ws.Conn, app: *App) !Handler {
         // `h` contains the initial websocket "handshake" request
@@ -89,6 +97,7 @@ const Handler = struct {
         offsetX: u64,
         offsetY: u64,
     };
+
     pub fn sendGridData(self: *Handler, message: []const u8, data: []const u8) ![]u8 {
         //std.debug.print("clientMessage: {any}\n", .{data});
         const pos = self.parsePositionInput(data) catch |e| {
@@ -159,7 +168,7 @@ const Handler = struct {
         const messageActual = (tryGetValue(message.value.object, "message") catch |e| return e).string;
         var dataActual = (tryGetValue(message.value.object, "data") catch |e| return e);
 
-        std.debug.print("clientMessage: {s}\n", .{message.value.object.get("message").?.string});
+        std.debug.print("clientMessage: {s}\n", .{(message.value.object.get("message") orelse return error.InvalidInput).string});
 
         var result: []u8 = "";
         if (std.mem.eql(u8, messageActual, "gridData")) {
@@ -182,21 +191,21 @@ const Handler = struct {
             const isWord = try wordChecker.checkWord(x1, y1, x2, y2, true);
             result = if (isWord) @as([]u8, @ptrCast(@constCast("{\"result\": true, \"message\": \"wordGuess\"}"))) else @as([]u8, @ptrCast(@constCast("{\"result\": false, \"message\": \"wordGuess\"}")));
         } else if (std.mem.eql(u8, messageActual, "cursor")) {
-            dataActual.dump();
-            const x: f64 = switch (dataActual.object.get("x").?) {
-                .integer => @floatFromInt(dataActual.object.get("x").?.integer),
-                .float => dataActual.object.get("x").?.float,
+            //dataActual.dump();
+            const x: f64 = switch (dataActual.object.get("x") orelse return error.InvalidInput) {
+                .integer => @floatFromInt((dataActual.object.get("x") orelse return error.InvalidInput).integer),
+                .float => (dataActual.object.get("x") orelse return error.InvalidInput).float,
                 else => return error.InvalidInput,
             };
-            const y: f64 = switch (dataActual.object.get("y").?) {
-                .integer => @floatFromInt(dataActual.object.get("y").?.integer),
-                .float => dataActual.object.get("y").?.float,
+            const y: f64 = switch ((dataActual.object.get("y") orelse return error.InvalidInput)) {
+                .integer => @floatFromInt((dataActual.object.get("y") orelse return error.InvalidInput).integer),
+                .float => (dataActual.object.get("y") orelse return error.InvalidInput).float,
                 else => return error.InvalidInput,
             };
-            try cursorHandler.addCursor(x, y, self.app.id);
+            try cursorHandler.addCursor(x, y, self.id);
             std.debug.print("Added cursor: {d} {d}\n", .{ x, y });
         } else {
-            std.log.err("Unknown message type: {s}", .{message.value.object.get("message").?.string});
+            //std.log.err("Unknown message type: {s}", .{messageActual});
             return error.UnknownMessageType;
         }
         std.log.debug("Time taken: {d}ms", .{std.time.microTimestamp() - startTime});
@@ -208,7 +217,7 @@ const Handler = struct {
         var result = std.ArrayList(u8).init(self.app.allocator);
         const r = self.handleMessage(data) catch |e| {
             std.log.err("Error handling message: {?}", .{e});
-            try std.json.stringify(MessageJSON{
+            try std.json.stringify(StringMessage{
                 .data = "",
                 .message = "error",
             }, .{}, result.writer());
@@ -218,26 +227,51 @@ const Handler = struct {
             return e;
         };
 
-        try std.json.stringify(MessageJSON{
-            .data = r,
-            .message = "success",
-        }, .{}, result.writer());
-        defer result.deinit();
-        const resultStr = try result.toOwnedSlice();
         //std.debug.print("Sending message: {s}\n", .{resultStr});
-        try self.conn.write(resultStr);
+        try self.conn.write(r);
     }
 
     pub fn close(self: *Handler) !void {
-        cursorHandler.removeCursor(self.app.id) catch |e| {
+        self.cursorThreadRunning = false;
+        self.cursorSendThread.join();
+        cursorHandler.removeCursor(self.id) catch |e| {
             std.log.err("Error removing cursor: {?}", .{e});
             return e;
         };
     }
 
+    pub fn sendCursorData(self: *Handler) !void {
+        const CursorMessage = struct {
+            message: []const u8,
+            data: []CursorHandler.Cursor,
+        };
+
+        var result = std.ArrayList(u8).init(self.app.allocator);
+        defer result.deinit();
+        const cursors = try cursorHandler.getCursors();
+        try std.json.stringify(CursorMessage{ .message = "cursorData", .data = cursors }, .{}, result.writer());
+        const resultStr = try result.toOwnedSlice();
+        //std.debug.print("Sending message: {s}\n", .{resultStr});
+        try self.conn.write(resultStr);
+    }
+
+    pub fn repeatSendCursorData(self: *Handler) !void {
+        while (self.cursorThreadRunning) {
+            std.time.sleep(1 * std.time.ns_per_s);
+            if (self.cursorThreadRunning) {
+                try self.sendCursorData();
+            } else return;
+        }
+    }
+
     pub fn afterInit(self: *Handler) !void {
-        self.app.id = currentId;
+        self.id = currentId;
         currentId += 1;
+
+        self.cursorSendThread = std.Thread.spawn(.{ .allocator = self.app.allocator }, Handler.repeatSendCursorData, .{self}) catch |e| {
+            std.log.err("Error spawning thread: {?}", .{e});
+            return e;
+        };
     }
 };
 
@@ -245,5 +279,4 @@ const Handler = struct {
 // init function.
 const App = struct {
     allocator: std.mem.Allocator,
-    id: u64 = 0,
 };

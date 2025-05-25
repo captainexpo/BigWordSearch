@@ -37,3 +37,17 @@ stage.on("wheel", (e) => {
     stage.batchDraw();
     updateGrid(); // ask for new data
 });
+
+const mouseSendData = debounce((e) => {
+    const pointer = stage.getPointerPosition();
+    const cursorX = pointer.x;
+    const cursorY = pointer.y;
+    
+    sendMessage("cursor", {
+        x: (cursorX - stage.x()) / currentScale,
+        y: (cursorY - stage.y()) / currentScale
+    });
+}, 500);
+
+
+stage.on("mousemove", mouseSendData);

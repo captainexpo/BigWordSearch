@@ -14,6 +14,7 @@ let textLayer = new Konva.Layer({ listening: true});
 let cursorLayer = new Konva.FastLayer();
 
 stage.add(textLayer);
+stage.add(cursorLayer);
 
 const cellSize = 100;
 
@@ -224,3 +225,21 @@ function onhover(node){
         hoveredText = null;
     }
 }  
+
+function recievedCursorData(data) {
+    // Data is a list of {x: float, y: float}
+    cursorLayer.destroyChildren();
+    for (let i = 0; i < data.length; i++) {
+        const cursor = data[i];
+        const circle = new Konva.Circle({
+            x: cursor.x,
+            y: cursor.y,
+            radius: 10,
+            fill: "red",
+            stroke: "black",
+            strokeWidth: 2,
+        });
+        cursorLayer.add(circle);
+    }
+    cursorLayer.draw();
+}
