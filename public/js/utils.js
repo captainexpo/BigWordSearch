@@ -9,3 +9,7 @@ function debounce(func, wait) {
         timeout = setTimeout(later, wait);
     };
 }
+
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}

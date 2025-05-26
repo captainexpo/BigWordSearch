@@ -1,52 +1,97 @@
-const socket = new WebSocket("ws://localhost:8081");
+const SocketOpenedEvent = new Event("SocketOpened");
 
-socket.onopen = () => {
-    updateGrid();
-};
 
-socket.onmessage = (event) => {
-    //console.log("Message from server: ", event.data);
-    let data = JSON.parse(event.data);
-    const resultType = data.message;
-    if (resultType == "error") {
-        console.error("Error from server: ", data.data);
-        window.alert("An error has occured, please reload the page.");
-        return;
+
+(function waitForEnv() {
+    if (typeof ENV !== "undefined" && ENV.WS_URL) {
+        window.socket = new WebSocket(ENV.WS_URL);
+        
+        window.socket.onopen = () => {
+            updateGrid();
+            sendMessage("getID", {});
+            document.dispatchEvent(SocketOpenedEvent);
+        };
+
+
+
+        window.socket.onmessage = (event) => {
+            if (!event.data) return;
+            let data = JSON.parse(event.data);
+            const resultType = data.message;
+            if (resultType == "error") {
+                console.error("Error from server: ", data.data);
+                window.alert("An error has occured, please reload the page.");
+                return;
+            }
+
+            if (!data.data){
+                return;
+            }
+            if (data.message != "cursorData")console.log("Data: ", data);
+            
+            switch(data.message) {
+                case "gridData":
+                    if (typeof data.data[0] == "number") {
+                        // If the data is a number, convert it to a string
+                        data.data = data.data.map((num) => num.toString());
+                    }
+                    const gridData = data.data.split("\n");
+                    //console.log("Grid data: ", gridData, data.offsetX, data.offsetY);
+                    recievedGridData(gridData, data.offsetX, data.offsetY);
+                    break;
+                case "wordGuess":
+                    //console.log("Word guess: ", data.data);
+                    const wasGood = data.data;
+                    console.log("Word guess: ", wasGood);
+                    if (wasGood) {
+                        console.log("Word guess was good");
+                        successfullyGotWord(data.x, data.y, data.x2, data.y2);
+                    }
+                    
+                    break;
+                case "cursorData":
+                    const cursorData = data.data;
+                    recievedCursorData(cursorData);
+                    break;
+                case "getID":
+                    LOCAL_USER.id = data.data;
+                    break;
+                default:    
+                    console.error("Unknown message type: ", data.message);
+            }
+        };
+
+
+    } else {
+        setTimeout(waitForEnv, 50);
     }
+})();
 
-    console.log("Data: ", data);
-
-    if (!data.data){
-        return;
+    
+function sendMessage(message, data) {
+    if (window.socket.readyState !== WebSocket.OPEN) {
+        return false;
     }
-
-    switch(data.message) {
+    switch(message) {
         case "gridData":
-            if (typeof data.data[0] == "number") {
-                // If the data is a number, convert it to a string
-                data.data = data.data.map((num) => num.toString());
-            }
-            const gridData = data.data.split("\n");
-            //console.log("Grid data: ", gridData, data.offsetX, data.offsetY);
-            recievedGridData(gridData, data.offsetX, data.offsetY);
+            data = [...toull(data.x), ...toull(data.y), ...toull(data.x1), ...toull(data.y1)];
             break;
-        case "wordGuess":
-            //console.log("Word guess: ", data.data);
-            const wasGood = data.result;
-            console.log("Word guess: ", wasGood);
-            if (wasGood) {
-                console.log("Word guess was good");
-            }
+        default:
+            data = data;
             break;
-        case "cursorData":
-            console.log("Cursor data: ", data.data);
-            const cursorData = data.data;
-            recievedCursorData(cursorData);
-            break;
-        default:    
-            console.error("Unknown message type: ", data.message);
     }
-};
+    //console.log("Sending message: ", message, data);
+    try {
+        window.socket.send(JSON.stringify({ message: message, data: data }));        
+    }
+    catch (error) {
+        return false;
+    }
+    return true;
+}
+
+
+
 
 function toull(number) {
   const n = BigInt(number) & ((1n << 64n) - 1n); // Clamp to 64 bits
@@ -56,29 +101,4 @@ function toull(number) {
   return new Uint8Array(buffer);
 }
 
-function sendMessage(message, data) {
-    if (socket.readyState !== WebSocket.OPEN) {
-        return false;
-    }
-    switch(message) {
-        case "gridData":
-            data = [...toull(data.x), ...toull(data.y), ...toull(data.x1), ...toull(data.y1)];
-            break;
-        case "wordGuess":
-            data = data
-            break;
-        case "cursor":
-            data = data;
-            break;
-        default:
-            return false;
-    }
-    //console.log("Sending message: ", message, data);
-    try {
-        socket.send(JSON.stringify({ message: message, data: data }));        
-    }
-    catch (error) {
-        return false;
-    }
-    return true;
-}
+

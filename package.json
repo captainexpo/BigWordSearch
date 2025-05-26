@@ -15,6 +15,7 @@
   "dependencies": {
     "@types/express": "^5.0.2",
     "@types/http-proxy-middleware": "^1.0.0",
+    "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "http-proxy-middleware": "^3.0.5"
   }

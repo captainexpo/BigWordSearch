@@ -1,0 +1,12 @@
+version: "3"
+agent:
+    authtoken: 2Ksey3cmNnPKIFTRuxOmJyEzmsk_5YBbejR2U8z9ZKxEVacdQ
+tunnels:
+  first-app:
+    addr: 8080
+    proto: http
+    domain: chimp-gorgeous-enormously.ngrok-free.app
+
+  second-app:
+    addr: 8081
+    proto: http

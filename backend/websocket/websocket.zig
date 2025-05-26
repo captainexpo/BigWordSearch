@@ -174,6 +174,7 @@ const Handler = struct {
         if (std.mem.eql(u8, messageActual, "gridData")) {
             result = try self.sendGridData(messageActual, try jsonValueSliceToGeneric(self, u8, dataActual.array.items));
         } else if (std.mem.eql(u8, messageActual, "wordGuess")) {
+            const WordGuessMessage = struct { message: []const u8, data: bool, x: u64, y: u64, x2: u64, y2: u64 };
             std.debug.print("GOT WORD GUESS\n", .{});
             const x1 = try utils.toU64((dataActual.object.get("x1") orelse {
                 return error.InvalidInput;
@@ -189,7 +190,18 @@ const Handler = struct {
             }).integer);
 
             const isWord = try wordChecker.checkWord(x1, y1, x2, y2, true);
-            result = if (isWord) @as([]u8, @ptrCast(@constCast("{\"result\": true, \"message\": \"wordGuess\"}"))) else @as([]u8, @ptrCast(@constCast("{\"result\": false, \"message\": \"wordGuess\"}")));
+            std.debug.print("Word guess: {d} {d} {d} {d} {}\n", .{ x1, y1, x2, y2, isWord });
+
+            var writer = std.ArrayList(u8).init(self.app.allocator);
+            try std.json.stringify(WordGuessMessage{
+                .message = "wordGuess",
+                .data = isWord,
+                .x = x1,
+                .y = y1,
+                .x2 = x2,
+                .y2 = y2,
+            }, .{}, writer.writer());
+            result = try writer.toOwnedSlice();
         } else if (std.mem.eql(u8, messageActual, "cursor")) {
             //dataActual.dump();
             const x: f64 = switch (dataActual.object.get("x") orelse return error.InvalidInput) {
@@ -204,6 +216,16 @@ const Handler = struct {
             };
             try cursorHandler.addCursor(x, y, self.id);
             std.debug.print("Added cursor: {d} {d}\n", .{ x, y });
+        } else if (std.mem.eql(u8, messageActual, "getID")) {
+            const IdMsg = struct { message: []const u8, data: u64 };
+            const id = self.id;
+            var r = std.ArrayList(u8).init(self.app.allocator);
+            defer r.deinit();
+            try std.json.stringify(IdMsg{
+                .data = id,
+                .message = "getID",
+            }, .{}, r.writer());
+            result = try r.toOwnedSlice();
         } else {
             //std.log.err("Unknown message type: {s}", .{messageActual});
             return error.UnknownMessageType;
@@ -257,7 +279,7 @@ const Handler = struct {
 
     pub fn repeatSendCursorData(self: *Handler) !void {
         while (self.cursorThreadRunning) {
-            std.time.sleep(1 * std.time.ns_per_s);
+            std.time.sleep(0.1 * std.time.ns_per_s);
             if (self.cursorThreadRunning) {
                 try self.sendCursorData();
             } else return;

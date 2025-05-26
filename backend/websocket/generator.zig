@@ -22,7 +22,7 @@ pub const Word = struct {
 pub const CharMap = std.AutoHashMap(struct { x: u64, y: u64 }, u8);
 
 pub const Generator = struct {
-    SEED: u64 = @as(u64, std.math.pow(u64, 2, 25) - 912),
+    SEED: u64 = @as(u64, std.math.pow(u64, 2, 25) - 913),
     grid_width: u64,
     prng: std.Random.Xoshiro256,
     words: std.ArrayList(Word),

@@ -1,4 +1,10 @@
+
 const container = document.getElementById("grid-container");
+
+const TEXT_COLOR = "black";
+const FONT_SIZE = 80;
+
+
 
 let stage = new Konva.Stage({
     container: "grid-container",
@@ -11,10 +17,12 @@ stage.on("dragmove", () => {
 });
 
 let textLayer = new Konva.Layer({ listening: true});
-let cursorLayer = new Konva.FastLayer();
+let cursorLayer = new Konva.Layer({ listening: false });
+let decorationLayer = new Konva.Layer({ listening: false }); 
 
 stage.add(textLayer);
 stage.add(cursorLayer);
+stage.add(decorationLayer);
 
 const cellSize = 100;
 
@@ -45,27 +53,25 @@ function toGridBounds() {
     };
 }
 
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
 let sentTime = 0;
+let alreadyGotAll = false;
 
 function _updateGrid() {
 
     const bounds = toGridBounds();
+
+    if (alreadyGotAll) return;
+    if (bounds.x < 0 && bounds.x1 > 25 && bounds.y < 0 && bounds.y1 > 25) {
+        // If the bounds are completely off-screen, don't send a request
+        if (alreadyGotAll) return;
+        alreadyGotAll = true;
+    }
     bounds.x = Math.max(0, bounds.x);
     bounds.y = Math.max(0, bounds.y);
     bounds.x1 = Math.min(bounds.x1, 25);
     bounds.y1 = Math.min(bounds.y1, 25);
+
+
 
     //if(currentScale < 0.5) { 
     //    console.log("Scale too small, not sending grid data");
@@ -131,8 +137,8 @@ function recievedGridData(data, offsetX, offsetY, bx, by) {
                 width: cellSize,
                 height: cellSize,
                 text: row[x],
-                fill: "white",
-                fontSize: 50,
+                fill: "black",
+                fontSize: 80,
                 fontFamily: "monospace",
                 align: "center",
                 verticalAlign: "middle",
@@ -177,8 +183,8 @@ function clickedText(node){
     }
     else {
         selectedText.text.setAttrs({
-            fill: "white",
-            fontSize: 50,
+            fill: TEXT_COLOR,
+            fontSize: FONT_SIZE,
         });
         
         selectedText.text = null;
@@ -186,27 +192,29 @@ function clickedText(node){
         stage.draggable(true);
         allowZoom = true;
         if (selectedText.gx == Math.floor(node.x() / cellSize) && selectedText.gy == Math.floor(node.y() / cellSize)) {
+            resetWordSelection();
             return;
         }
+        console.log("Sending word guess: ", selectedText.gx, selectedText.gy, Math.floor(node.x() / cellSize), Math.floor(node.y() / cellSize));
         sendMessage("wordGuess", {
             x1: selectedText.gx,
             y1: selectedText.gy,
             x2: Math.floor(node.x() / cellSize),
             y2: Math.floor(node.y() / cellSize),
         });
-
+        resetWordSelection();
     }
 }
 
-let selectedLine = [];
+let selectedLine = null;
 
 function onhover(node){
     if (selectedText.text === node) return;
     if (selectedText.text !== null) {
         if (hoveredText !== null) {
             hoveredText.setAttrs({
-                fill: "white",
-                fontSize: 50,
+                fill: TEXT_COLOR,
+                fontSize: FONT_SIZE,
             });
         }
         hoveredText = node;
@@ -214,32 +222,84 @@ function onhover(node){
             fill: "yellow",
             fontSize: 80,
         });
+
+        // Draw a line from the selected char to the hovered char
+        if (selectedLine !== null) {
+            selectedLine.destroy();
+            selectedLine = null;
+        }
+        const startX = selectedText.text.x() + cellSize / 2;
+        const startY = selectedText.text.y() + cellSize / 2;
+        const endX = node.x() + cellSize / 2;
+        const endY = node.y() + cellSize / 2;
+        selectedLine = new Konva.Line({
+            points: [startX, startY, endX, endY],
+            stroke: "orange",
+            strokeWidth: 4,
+            lineCap: "round",
+            lineJoin: "round",
+            dash: [10, 5],
+        });
+        cursorLayer.destroyChildren();
+        cursorLayer.add(selectedLine);
+        cursorLayer.batchDraw();
     }
     else {
         if (hoveredText !== null) {
             hoveredText.setAttrs({
-                fill: "white",
-                fontSize: 50,
+                fill: TEXT_COLOR,
+                fontSize: FONT_SIZE,
             });
         }
         hoveredText = null;
+        if (selectedLine !== null) {
+            selectedLine.destroy();
+            selectedLine = null;
+            cursorLayer.batchDraw();
+        }
     }
 }  
 
-function recievedCursorData(data) {
-    // Data is a list of {x: float, y: float}
-    cursorLayer.destroyChildren();
-    for (let i = 0; i < data.length; i++) {
-        const cursor = data[i];
-        const circle = new Konva.Circle({
-            x: cursor.x,
-            y: cursor.y,
-            radius: 10,
-            fill: "red",
-            stroke: "black",
-            strokeWidth: 2,
+function successfullyGotWord(x, y, x1, y1){
+    // Get a line between the two points
+    const startX = x * cellSize + cellSize / 2;
+    const startY = y * cellSize + cellSize / 2;
+    const endX = x1 * cellSize + cellSize / 2;
+    const endY = y1 * cellSize + cellSize / 2;
+
+    const line = new Konva.Line({
+        points: [startX, startY, endX, endY],
+        stroke: "green",
+        strokeWidth: 5,
+        lineCap: "round",
+        lineJoin: "round",
+    });
+    
+    decorationLayer.add(line);
+    decorationLayer.batchDraw();
+}
+
+
+function resetWordSelection(){
+    if (selectedText.text !== null) {
+        selectedText.text.setAttrs({
+            fill: TEXT_COLOR,
+            fontSize: FONT_SIZE,
         });
-        cursorLayer.add(circle);
     }
-    cursorLayer.draw();
+    if (hoveredText !== null) {
+        hoveredText.setAttrs({
+            fill: TEXT_COLOR,
+            fontSize: FONT_SIZE,
+        });
+    }
+    selectedText = {gx: -1, gy: -1, text: null};
+    hoveredText = null;
+    if (selectedLine !== null) {
+        selectedLine.destroy();
+        selectedLine = null;
+    }
+    cursorLayer.batchDraw();
+    stage.draggable(true);
+    allowZoom = true;
 }

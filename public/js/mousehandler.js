@@ -38,8 +38,12 @@ stage.on("wheel", (e) => {
     updateGrid(); // ask for new data
 });
 
-const mouseSendData = debounce((e) => {
+let lastp = {x:0, y:0};
+document.addEventListener('SocketOpened', ()=>setInterval((e) => {
     const pointer = stage.getPointerPosition();
+    if (lastp.x == pointer.x && lastp.y == pointer.y) {
+        return;
+    }
     const cursorX = pointer.x;
     const cursorY = pointer.y;
     
@@ -47,7 +51,6 @@ const mouseSendData = debounce((e) => {
         x: (cursorX - stage.x()) / currentScale,
         y: (cursorY - stage.y()) / currentScale
     });
-}, 500);
+    lastp = {x: cursorX, y: cursorY};
+}, 100));
 
-
-stage.on("mousemove", mouseSendData);

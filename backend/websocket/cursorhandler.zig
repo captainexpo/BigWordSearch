@@ -4,7 +4,7 @@ pub const CursorHandler = struct {
     allocator: std.mem.Allocator,
     cursors: std.AutoHashMap(u64, Cursor),
 
-    pub const Cursor = struct { x: f64, y: f64 };
+    pub const Cursor = struct { x: f64, y: f64, id: u64 = undefined };
 
     pub fn init(allocator: std.mem.Allocator) CursorHandler {
         return CursorHandler{
@@ -14,7 +14,7 @@ pub const CursorHandler = struct {
     }
 
     pub fn addCursor(self: *CursorHandler, x: f64, y: f64, id: u64) !void {
-        const cursor = Cursor{ .x = x, .y = y };
+        const cursor = Cursor{ .x = x, .y = y, .id = id };
         try self.cursors.put(id, cursor);
     }
 
