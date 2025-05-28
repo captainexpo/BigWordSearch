@@ -31,28 +31,28 @@ pub const WordChecker = struct {
         std.debug.print("Word list size: {}\n", .{self.wordList.count()});
     }
 
-    pub fn checkWord(self: *WordChecker, x1: u64, y1: u64, x2: u64, y2: u64, notifyGenerator: bool) !bool {
+    pub fn checkWord(self: *WordChecker, x1: u64, y1: u64, x2: u64, y2: u64, notifyGenerator: bool) !struct { bool, []u8 } {
         if (self.generator.foundWords.get(.{ x1, y1, x2, y2 })) |_| {
-            return false; // Only allow new words
+            return .{ false, undefined }; // Only allow new words
         }
         // Make sure length of word is >= 4
         const dx = @as(i64, @intCast(x2)) - @as(i64, @intCast(x1));
         const dy = @as(i64, @intCast(y2)) - @as(i64, @intCast(y1));
         const length = @sqrt(@as(f64, @floatFromInt(dx * dx + dy * dy)));
         std.debug.print("Length: {}\n", .{length});
-        if (length < 3) {
-            return false;
+        if (length < 2) {
+            return .{ false, undefined };
         }
 
         const word = try self.generator.getLine(self.allocator, x1, y1, x2, y2);
         const isin = self.wordList.get(word) orelse 0;
         std.debug.print("Word: {s}, isin: {}\n", .{ word, isin });
         if (isin == 0) {
-            return false;
+            return .{ false, undefined };
         }
         if (notifyGenerator) {
             try self.generator.wordFound(x1, y1, x2, y2);
         }
-        return true;
+        return .{ true, word };
     }
 };

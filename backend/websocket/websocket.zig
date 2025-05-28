@@ -14,7 +14,7 @@ var currentId: u64 = 0;
 var clients: std.AutoHashMap(u64, *Handler) = undefined;
 
 pub fn startWebsocket(allocator: std.mem.Allocator, port: u16, wordsPath: []const u8) !void {
-    gen = try Generator.init(allocator, 25);
+    gen = try Generator.init(allocator, 100);
     try gen.readWordsFromFile(wordsPath, allocator);
 
     clients = std.AutoHashMap(u64, *Handler).init(allocator);
@@ -61,17 +61,27 @@ pub fn broadcastAcrossAll(message: []const u8) !void {
     std.log.debug("Broadcasting message: {s} across {d} clients", .{ message, clients.count() });
     var valiter = clients.valueIterator();
     while (valiter.next()) |client| {
-        std.log.debug("Broadcasting message to client {d}", .{client.*.id});
+        std.log.debug("Broadcasting message to client {d}", .{client.*.user.id});
         try client.*.conn.write(message);
     }
 }
+
+const UserData = struct {
+    id: u64,
+    score: u64,
+    username: []const u8,
+};
 
 // This is your application-specific wrapper around a websocket connection
 const Handler = struct {
     app: *App,
     conn: *ws.Conn,
 
-    id: u64 = 0,
+    user: UserData = .{
+        .id = 0,
+        .score = 0,
+        .username = "anonymous",
+    },
     cursorSendThread: std.Thread = undefined,
     cursorThreadRunning: bool = true,
 
@@ -187,7 +197,8 @@ const Handler = struct {
         if (std.mem.eql(u8, messageActual, "gridData")) {
             result = try self.sendGridData(messageActual, try jsonValueSliceToGeneric(self, u8, dataActual.array.items));
         } else if (std.mem.eql(u8, messageActual, "wordGuess")) {
-            const WordGuessMessage = struct { message: []const u8, data: bool, x: u64, y: u64, x2: u64, y2: u64, success_id: u64 };
+            const WordGuessMessage = struct { message: []const u8, data: bool, x: u64, y: u64, x2: u64, y2: u64, user: UserData, word: []u8 };
+
             //std.debug.print("GOT WORD GUESS\n", .{});
             const x1 = try utils.toU64((dataActual.object.get("x1") orelse {
                 return error.InvalidInput;
@@ -202,7 +213,7 @@ const Handler = struct {
                 return error.InvalidInput;
             }).integer);
 
-            const isWord = try wordChecker.checkWord(x1, y1, x2, y2, true);
+            const isWord, const word = try wordChecker.checkWord(x1, y1, x2, y2, true);
             //std.debug.print("Word guess: {d} {d} {d} {d} {}\n", .{ x1, y1, x2, y2, isWord });
 
             var writer = std.ArrayList(u8).init(self.app.allocator);
@@ -213,11 +224,18 @@ const Handler = struct {
                 .y = y1,
                 .x2 = x2,
                 .y2 = y2,
-                .success_id = self.id,
+                .word = word,
+                .user = self.user,
             }, .{}, writer.writer());
 
             // Broadcast the new word guess to all clients
             try broadcastAcrossAll(try writer.toOwnedSlice());
+
+            if (isWord) {
+                self.user.score += 1;
+                try self.broadcastUpdate();
+            }
+
             dosend = false;
         } else if (std.mem.eql(u8, messageActual, "cursor")) {
             //dataActual.dump();
@@ -231,11 +249,11 @@ const Handler = struct {
                 .float => (dataActual.object.get("y") orelse return error.InvalidInput).float,
                 else => return error.InvalidInput,
             };
-            try cursorHandler.addCursor(x, y, self.id);
+            try cursorHandler.addCursor(x, y, self.user.id);
             //std.debug.print("Added cursor: {d} {d}\n", .{ x, y });
         } else if (std.mem.eql(u8, messageActual, "getID")) {
             const IdMsg = struct { message: []const u8, data: u64 };
-            const id = self.id;
+            const id = self.user.id;
             var r = std.ArrayList(u8).init(self.app.allocator);
             defer r.deinit();
             try std.json.stringify(IdMsg{
@@ -271,6 +289,33 @@ const Handler = struct {
                 .data = try wordArray.toOwnedSlice(),
             }, .{}, r.writer());
             result = try r.toOwnedSlice();
+        } else if (std.mem.eql(u8, messageActual, "getAllUserData")) {
+            const UserDataMessage = struct {
+                message: []const u8,
+                data: []UserData,
+            };
+            var userArray = std.ArrayList(UserData).init(self.app.allocator);
+            var valiter = clients.valueIterator();
+            while (valiter.next()) |client| {
+                try userArray.append(client.*.user);
+            }
+            var r = std.ArrayList(u8).init(self.app.allocator);
+            defer r.deinit();
+            try std.json.stringify(UserDataMessage{
+                .message = "getAllUserData",
+                .data = try userArray.toOwnedSlice(),
+            }, .{}, r.writer());
+            result = try r.toOwnedSlice();
+        } else if (std.mem.eql(u8, messageActual, "setUsername")) {
+            // Set the username for the user
+            const username = (dataActual.object.get("username") orelse return error.InvalidInput).string;
+            if (username.len == 0) {
+                return error.InvalidUsername;
+            }
+            self.user.username = username;
+            // Broadcast the new username to all clients
+            try self.broadcastUpdate();
+            dosend = false;
         } else {
             //std.log.err("Unknown message type: {s}", .{messageActual});
             return error.UnknownMessageType;
@@ -307,12 +352,16 @@ const Handler = struct {
         self.cursorThreadRunning = false;
         self.cursorSendThread.join();
 
-        cursorHandler.removeCursor(self.id) catch |e| {
+        cursorHandler.removeCursor(self.user.id) catch |e| {
             std.log.err("Error removing cursor: {?}", .{e});
             return e;
         };
 
-        _ = clients.remove(self.id);
+        _ = clients.remove(self.user.id);
+        self.broadcastLeave() catch |e| {
+            std.log.err("Error broadcasting leave message: {?}", .{e});
+            return;
+        };
     }
 
     pub fn sendCursorData(self: *Handler) !void {
@@ -339,11 +388,56 @@ const Handler = struct {
         }
     }
 
+    pub fn broadcastJoin(self: *Handler) !void {
+        // Broadcast user join message
+        const UserJoinMessage = struct {
+            message: []const u8,
+            user: UserData,
+        };
+        var joinMessage = std.ArrayList(u8).init(self.app.allocator);
+        defer joinMessage.deinit();
+        try std.json.stringify(UserJoinMessage{
+            .message = "userJoin",
+            .user = self.user,
+        }, .{}, joinMessage.writer());
+        try broadcastAcrossAll(try joinMessage.toOwnedSlice());
+    }
+
+    pub fn broadcastUpdate(self: *Handler) !void {
+        // Broadcast user update message
+        const UserUpdateMessage = struct {
+            message: []const u8,
+            user: UserData,
+        };
+        var updateMessage = std.ArrayList(u8).init(self.app.allocator);
+        defer updateMessage.deinit();
+        try std.json.stringify(UserUpdateMessage{
+            .message = "userUpdate",
+            .user = self.user,
+        }, .{}, updateMessage.writer());
+        try broadcastAcrossAll(try updateMessage.toOwnedSlice());
+    }
+
+    pub fn broadcastLeave(self: *Handler) !void {
+        // Broadcast user leave message
+        const UserLeaveMessage = struct {
+            message: []const u8,
+            user: UserData,
+        };
+        var leaveMessage = std.ArrayList(u8).init(self.app.allocator);
+        defer leaveMessage.deinit();
+        try std.json.stringify(UserLeaveMessage{
+            .message = "userLeave",
+            .user = self.user,
+        }, .{}, leaveMessage.writer());
+        try broadcastAcrossAll(try leaveMessage.toOwnedSlice());
+    }
+
     pub fn afterInit(self: *Handler) !void {
-        self.id = currentId;
+        self.user.id = currentId;
         currentId += 1;
 
-        clients.put(self.id, self) catch |e| {
+        clients.put(self.user.id, self) catch |e| {
             std.log.err("Error adding client: {?}", .{e});
             return e;
         };
@@ -352,6 +446,8 @@ const Handler = struct {
             std.log.err("Error spawning thread: {?}", .{e});
             return e;
         };
+
+        try self.broadcastJoin();
     }
 };
 

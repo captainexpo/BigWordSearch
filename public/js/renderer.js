@@ -56,20 +56,22 @@ function toGridBounds() {
 let sentTime = 0;
 let alreadyGotAll = false;
 
-function _updateGrid() {
+const GRID_WIDTH = 100;
 
+function _updateGrid() {
+    
     const bounds = toGridBounds();
 
     if (alreadyGotAll) return;
-    if (bounds.x < 0 && bounds.x1 > 25 && bounds.y < 0 && bounds.y1 > 25) {
+    if (bounds.x < 0 && bounds.x1 > GRID_WIDTH && bounds.y < 0 && bounds.y1 > GRID_WIDTH) {
         // If the bounds are completely off-screen, don't send a request
         if (alreadyGotAll) return;
         alreadyGotAll = true;
     }
     bounds.x = Math.max(0, bounds.x);
     bounds.y = Math.max(0, bounds.y);
-    bounds.x1 = Math.min(bounds.x1, 25);
-    bounds.y1 = Math.min(bounds.y1, 25);
+    bounds.x1 = Math.min(bounds.x1, GRID_WIDTH);
+    bounds.y1 = Math.min(bounds.y1, GRID_WIDTH);
 
 
 

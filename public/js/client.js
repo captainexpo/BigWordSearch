@@ -1,24 +1,17 @@
 class User {
-    constructor() {
-        this.id = null;
-        this.cursorPos = { x: 0, y: 0 };
-        this.cursorColor = "#000000";
-    }
+    id = 0
+    score = 0
+    username = "anonymous"
 
-
-    setId(id) {
-        this.id = id;
-    }
-
-    setCursorPos(x, y) {
-        this.cursorPos.x = x;
-        this.cursorPos.y = y;
-    }
+    
+    constructor() {}
 
     toString() {
-        return `User(id=${this.id}, cursorPos=(${this.cursorPos.x}, ${this.cursorPos.y}), cursorColor=${this.cursorColor})`;
+        return `User(id=${this.id}, username=${this.username}, score=${this.score})`;
     }
+
 }
 
 
 const LOCAL_USER = new User();
+var users = {};

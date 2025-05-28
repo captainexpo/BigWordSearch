@@ -1,3 +1,4 @@
+
 const SocketOpenedEvent = new Event("SocketOpened");
 
 
@@ -10,6 +11,7 @@ const SocketOpenedEvent = new Event("SocketOpened");
             updateGrid();
             sendMessage("getID", {});
             sendMessage("getFoundWords", {});
+            sendMessage("getAllUserData", {});
             document.dispatchEvent(SocketOpenedEvent);
         };
 
@@ -43,6 +45,11 @@ const SocketOpenedEvent = new Event("SocketOpened");
                     if (wasGood) {
                         console.log("Word guess was good");
                         successfullyGotWord(data.x, data.y, data.x2, data.y2);
+                        // play a sound
+                        const audio = new Audio("/sounds/ding.mp3");
+                        audio.play().catch((err) => {
+                            console.error("Failed to play sound: ", err);
+                        });
                     }
                     break;
                 case "cursorData":
@@ -58,6 +65,44 @@ const SocketOpenedEvent = new Event("SocketOpened");
                     for (const {x1, y1, x2, y2} of foundWords) {
                         successfullyGotWord(x1, y1, x2, y2);
                     }
+                    break;
+                case "getAllUserData":
+                    const userData = data.data;
+                    console.log("User data: ", userData);
+                    // Remove existing users
+                    users = {};
+                    for (const user of userData) {
+                        const u = new User();
+                        u.id = user.id;
+                        u.username = user.username;
+                        u.score = user.score;
+                        users[u.id] = u;
+                    }
+                    updateLeaderboard();
+                    break;
+                case "userJoin":
+                case "userUpdate":
+                    const userUpdate = data.user;
+                    console.log("User update: ", userUpdate);
+                    if (users[userUpdate.id]) {
+                        users[userUpdate.id].username = userUpdate.username;
+                        users[userUpdate.id].score = userUpdate.score;
+                    } else {
+                        const u = new User();
+                        u.id = userUpdate.id;
+                        u.username = userUpdate.username;
+                        u.score = userUpdate.score;
+                        users[u.id] = u;
+                    }
+                    updateLeaderboard();
+                    break;
+                case "userLeave":
+                    const userLeaveId = data.user.id;
+                    console.log("User left: ", userLeaveId);
+                    if (users[userLeaveId]) {
+                        delete users[userLeaveId];
+                    }
+                    updateLeaderboard();
                     break;
                 default:    
                     console.error("Unknown message type: ", data.message);
