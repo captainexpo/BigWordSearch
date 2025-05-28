@@ -7,6 +7,7 @@ pub const Word = struct {
     dx: i64,
     dy: i64,
     word: []const u8,
+    foundby_id: u64 = undefined,
 
     pub fn print(self: *Word) void {
         return std.debug.print("{d}, {d}, {d}, {d}, {s}\n", .{
@@ -26,6 +27,7 @@ pub const Generator = struct {
     grid_width: u64,
     prng: std.Random.Xoshiro256,
     words: std.ArrayList(Word),
+    foundWords: std.AutoHashMap(struct { u64, u64, u64, u64 }, u1),
     charMap: CharMap,
 
     pub fn combine(self: *Generator, x: u64, y: u64, seed: u64) u64 {
@@ -53,6 +55,7 @@ pub const Generator = struct {
             .prng = prng,
             .words = std.ArrayList(Word).init(allocator),
             .charMap = CharMap.init(allocator),
+            .foundWords = std.AutoHashMap(struct { u64, u64, u64, u64 }, u1).init(allocator),
         };
     }
 
@@ -198,12 +201,12 @@ pub const Generator = struct {
             if (x < 0 or y < 0 or x >= @as(i64, @intCast(self.grid_width)) or y >= @as(i64, @intCast(self.grid_width))) {
                 return error.InvalidGridCoordinates;
             }
-            try self.charMap.put(
-                .{ .x = try utils.toU64(x), .y = try utils.toU64(y) },
-                0,
-            );
             x += step_x;
             y += step_y;
         }
+        self.foundWords.put(.{ x1, y1, x2, y2 }, 1) catch |err| {
+            std.log.err("Error: {?}", .{err});
+            return err;
+        };
     }
 };

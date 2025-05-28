@@ -32,6 +32,9 @@ pub const WordChecker = struct {
     }
 
     pub fn checkWord(self: *WordChecker, x1: u64, y1: u64, x2: u64, y2: u64, notifyGenerator: bool) !bool {
+        if (self.generator.foundWords.get(.{ x1, y1, x2, y2 })) |_| {
+            return false; // Only allow new words
+        }
         // Make sure length of word is >= 4
         const dx = @as(i64, @intCast(x2)) - @as(i64, @intCast(x1));
         const dy = @as(i64, @intCast(y2)) - @as(i64, @intCast(y1));

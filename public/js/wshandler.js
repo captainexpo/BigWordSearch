@@ -9,13 +9,14 @@ const SocketOpenedEvent = new Event("SocketOpened");
         window.socket.onopen = () => {
             updateGrid();
             sendMessage("getID", {});
+            sendMessage("getFoundWords", {});
             document.dispatchEvent(SocketOpenedEvent);
         };
 
 
 
         window.socket.onmessage = (event) => {
-            if (!event.data) return;
+            console.log("Message from server: ", event.data);
             let data = JSON.parse(event.data);
             const resultType = data.message;
             if (resultType == "error") {
@@ -24,10 +25,6 @@ const SocketOpenedEvent = new Event("SocketOpened");
                 return;
             }
 
-            if (!data.data){
-                return;
-            }
-            if (data.message != "cursorData")console.log("Data: ", data);
             
             switch(data.message) {
                 case "gridData":
@@ -47,7 +44,6 @@ const SocketOpenedEvent = new Event("SocketOpened");
                         console.log("Word guess was good");
                         successfullyGotWord(data.x, data.y, data.x2, data.y2);
                     }
-                    
                     break;
                 case "cursorData":
                     const cursorData = data.data;
@@ -55,6 +51,13 @@ const SocketOpenedEvent = new Event("SocketOpened");
                     break;
                 case "getID":
                     LOCAL_USER.id = data.data;
+                    break;
+                case "getFoundWords":
+                    const foundWords = data.data;
+                    console.log("Found words: ", foundWords);
+                    for (const {x1, y1, x2, y2} of foundWords) {
+                        successfullyGotWord(x1, y1, x2, y2);
+                    }
                     break;
                 default:    
                     console.error("Unknown message type: ", data.message);

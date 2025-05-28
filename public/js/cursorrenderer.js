@@ -5,13 +5,14 @@ const CURSOR_SIZE = 60;
 
 function recievedCursorData(data) {
     // Data is a list of {x: float, y: float, id: string}
+    let seenIds = [];
     for (let i = 0; i < data.length; i++) {
         const d = data[i];
         const x = d.x;
         const y = d.y;
         const id = d.id;
-        
-        console.log(LOCAL_USER.id, id, x, y);
+        seenIds.push(id);
+        // console.log(LOCAL_USER.id, id, x, y);
         if (id == LOCAL_USER.id) continue;
 
         if (cursors[id] == null) {
@@ -33,6 +34,13 @@ function recievedCursorData(data) {
         }
         cursorTargets[id] = { x, y };
     }
+    Object.keys(cursors).forEach((id) => {
+        if (!seenIds.includes(Number(id))) {
+            cursors[id].destroy();
+            delete cursors[id];
+            delete cursorTargets[id];
+        }
+    });
 }
 
 // Smoothly animate cursor positions
